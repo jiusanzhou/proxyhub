@@ -1,0 +1,22 @@
+# Build
+bin/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Go
+*.test
+*.out
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local
+.env
+.env.local
+proxyhub
+proxyhub.exe

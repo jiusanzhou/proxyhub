@@ -1,0 +1,26 @@
+[Unit]
+Description=proxyhub - 聚合代理池服务
+Documentation=https://github.com/jiusanzhou/proxyhub
+After=network.target
+
+[Service]
+Type=simple
+User=proxyhub
+Group=proxyhub
+WorkingDirectory=/var/lib/proxyhub
+ExecStart=/usr/local/bin/proxyhub serve --db /var/lib/proxyhub/proxyhub.db --proxy-port 7000 --api-port 7001
+Restart=on-failure
+RestartSec=5s
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/proxyhub
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
