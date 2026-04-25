@@ -19,7 +19,8 @@ import (
 
 // Server proxyhub 服务
 type Server struct {
-	pool *pool.Pool
+	pool    *pool.Pool
+	checker *pool.Checker
 
 	// 启动时记录，给 /healthz 用
 	startedAt time.Time
@@ -37,6 +38,11 @@ func New(p *pool.Pool) *Server {
 	}
 }
 
+// SetChecker 注入探测器（可选）
+func (s *Server) SetChecker(c *pool.Checker) {
+	s.checker = c
+}
+
 // HTTPHandler 返回 HTTP REST API mux（部署在 --api-port）
 func (s *Server) HTTPHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -46,6 +52,7 @@ func (s *Server) HTTPHandler() http.Handler {
 	mux.HandleFunc("/api/v1/stats", s.handleStats)
 	mux.HandleFunc("/api/v1/proxies", s.handleList)
 	mux.HandleFunc("/api/v1/refresh", s.handleRefresh)
+	mux.HandleFunc("/api/v1/check", s.handleCheckStats)
 	return mux
 }
 
@@ -66,14 +73,18 @@ func (s *Server) ProxyHandler() http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	stats := s.pool.Stats()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":      "ok",
-		"uptime":      time.Since(s.startedAt).String(),
-		"pool_size":   stats.Total,
-		"available":   stats.Available,
-		"proxy_reqs":  s.proxyReqCount.Load(),
-		"api_reqs":    s.apiReqCount.Load(),
-	})
+	resp := map[string]any{
+		"status":     "ok",
+		"uptime":     time.Since(s.startedAt).String(),
+		"pool_size":  stats.Total,
+		"available":  stats.Available,
+		"proxy_reqs": s.proxyReqCount.Load(),
+		"api_reqs":   s.apiReqCount.Load(),
+	}
+	if s.checker != nil {
+		resp["checker"] = s.checker.Stats()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handlePick(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +207,18 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"added": n, "total": s.pool.Size()})
+}
+
+func (s *Server) handleCheckStats(w http.ResponseWriter, r *http.Request) {
+	s.apiReqCount.Add(1)
+	if s.checker == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": true,
+		"stats":   s.checker.Stats(),
+	})
 }
 
 // ============================================================

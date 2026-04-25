@@ -23,6 +23,7 @@
 
 - 🚀 **零外部依赖**：单 Go 二进制 + SQLite
 - 🌐 **多源聚合**：proxifly（3000+ 代理，每 5 分钟更新）+ 自定义文本订阅
+- 🔬 **主动健康探测**：后台定期 L4/L7 探测，自动标记不可用，记录真实延迟
 - 📊 **健康度评分**：`score = 成功率 * 0.6 + 延迟分 * 0.4`
 - 🔁 **智能轮转**：TopN 高分代理中随机选，避免热门代理被打爆
 - 🛡️ **失败兜底**：单代理冷却 + 自动重试 + 池空降级直连
@@ -120,14 +121,51 @@ fmt.Println(stats.Total, stats.Available)
 CLI flags：
 
 ```
---proxy-port int          HTTP 前向代理端口 (默认 7000)
---api-port int            REST API + Prometheus 端口 (默认 7001)
---db string               SQLite 数据库路径 (默认 ./proxyhub.db)
---refresh-interval dur    代理池刷新间隔 (默认 10m)
---fail-cooldown dur       失败代理冷却时间 (默认 5m)
---log-level string        日志级别 debug/info/warn/error (默认 info)
---extra-source string     额外文本订阅源 name=url:proto，多个用 ; 分隔
+--proxy-port int             HTTP 前向代理端口 (默认 7000)
+--api-port int               REST API + Prometheus 端口 (默认 7001)
+--db string                  SQLite 数据库路径 (默认 ./proxyhub.db)
+--refresh-interval dur       代理池刷新间隔 (默认 10m)
+--fail-cooldown dur          失败代理冷却时间 (默认 5m)
+--log-level string           日志级别 debug/info/warn/error (默认 info)
+--extra-source string        额外文本订阅源 name=url:proto，多个用 ; 分隔
+
+# 健康探测
+--health-check               启用后台健康探测 (默认 true)
+--check-interval dur         整轮探测间隔 (默认 60s)
+--check-dial-timeout dur     L4 TCP dial 超时 (默认 5s)
+--check-http-timeout dur     L7 HTTP CONNECT 探测超时 (默认 8s)
+--check-concurrency int      探测并发度 (默认 50)
+--check-l7                   启用 L7 HTTP CONNECT 探测 (默认 false)
+--check-target string        L7 探测目标 (默认 httpbin.org:80)
+--check-ban-on-fail int      连续失败多少次标记 banned (默认 3)
 ```
+
+实测：3336 代理 × 200 并发 × 3s 超时 = 21 秒/轮。
+
+## 健康探测工作流
+
+```
+新代理进池 → 满分假象 (success_rate=1, latency=0)
+       ↓
+后台探测 (默认 60s/轮，并发 50)
+       ↓
+   ┌──────┐
+   │ TCP  │  L4 dial 到 host:port
+   │ dial │  失败 → fail++
+   └──┬───┘  成功 → 记录真实延迟
+      │
+      ↓ (可选 --check-l7)
+   ┌──────────┐
+   │ CONNECT  │  HTTP CONNECT example.com:443
+   │ probe    │  失败 → fail++
+   └──┬───────┘  成功 → 记录端到端延迟
+      │
+      ↓
+   连续失败 ≥ BanOnFail (默认 3) → 进入冷却 (--fail-cooldown)
+   单次成功 → 解封 + 重置 streak
+```
+
+实战数据：3336 代理探完一轮，约 65% L4 可达，35% 死链被标记。
 
 示例：
 
