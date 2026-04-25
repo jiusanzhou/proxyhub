@@ -1,0 +1,34 @@
+# proxyhub 高级配置示例：PostgreSQL store + 多 source
+
+proxy_port: 7000
+api_port: 7001
+log_level: info
+
+refresh_interval: 10m
+fail_cooldown: 5m
+
+check_enabled: true
+check_interval: 60s
+check_dial_timeout: 5s
+check_http_timeout: 8s
+check_concurrency: 50
+check_l7: false
+check_target: httpbin.org:80
+check_ban_on_fail: 3
+
+# Store: PostgreSQL（需先创建数据库）
+store:
+  type: postgres
+  config:
+    dsn: postgres://proxyhub:password@localhost:5432/proxyhub?sslmode=disable
+
+# Sources: 默认 Proxifly + 自定义文本订阅
+sources:
+  - name: proxifly
+    type: proxifly
+
+  - name: my-custom-list
+    type: text
+    config:
+      url: https://example.com/proxies.txt
+      protocol: http

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-25
+
+### Added
+- **x/factory 抽象**：source + store 支持动态工厂模式
+  - `go.zoe.im/x/factory@v0.14.0` 通用型工厂
+  - 配置文件支持结构化 `store:` + `sources:` 字段
+- **PostgreSQL store**：`pgx` 驱动，支持 `type: postgres`
+  - 配置示例：`config.example.yaml`
+  - 兼容 SQLite 默认（`type: sqlite` 或省略）
+- **多 source 支持扩展**：配置文件可定义任意数量文本源
+- **README 双语**：默认英文，链接 `README.zh.md`（中文版）
+
+### Changed
+- Store + Sources 用工厂模式从配置动态创建
+- 配置文件：向后兼容 `--db` 字符串参数（等价 `type: sqlite; path: ...`）
+
+### Fixed
+- 修复 `opts parse error: field 'DB' unused`（DB 字段改为 `omitempty`）
+
 ## [0.4.0] - 2026-04-25
 
 ### Changed

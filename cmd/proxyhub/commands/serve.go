@@ -3,6 +3,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.zoe.im/x"
 	"go.zoe.im/x/cli"
 
 	"go.zoe.im/proxyhub/cmd"
@@ -63,25 +65,20 @@ func runServe(cfg *config.Config) error {
 		cancel()
 	}()
 
-	// SQLite store
-	st, err := store.NewSQLite(cfg.DB)
+	// Store（工厂模式）
+	st, err := buildStore(cfg)
 	if err != nil {
-		return fmt.Errorf("open store %q: %w", cfg.DB, err)
+		return fmt.Errorf("build store: %w", err)
 	}
 	defer st.Close()
-	slog.Info("store ready", "path", cfg.DB)
+	slog.Info("store ready", "type", resolveStoreType(cfg))
 
-	// 代理来源
-	sources := []pool.Source{source.NewProxifly()}
-	if cfg.ExtraSource != "" {
-		extra, err := parseExtraSources(cfg.ExtraSource)
-		if err != nil {
-			return fmt.Errorf("parse extra-source: %w", err)
-		}
-		for _, s := range extra {
-			sources = append(sources, s)
-		}
+	// Sources（工厂模式）
+	sources, err := buildSources(cfg)
+	if err != nil {
+		return fmt.Errorf("build sources: %w", err)
 	}
+	slog.Info("sources ready", "count", len(sources))
 
 	// 代理池
 	p := pool.New(
@@ -161,9 +158,77 @@ func runServe(cfg *config.Config) error {
 	return nil
 }
 
-// parseExtraSources 解析 "name1=url1:proto1;name2=url2:proto2"
-func parseExtraSources(s string) ([]*source.Text, error) {
-	out := []*source.Text{}
+// buildStore 根据 config 创建 store 实例
+//
+// 规则：
+//  1. 优先使用 cfg.Store（配置文件的结构化配置）
+//  2. 回退到 cfg.DB（向后兼容，等价于 store.type=sqlite + path=cfg.DB）
+func buildStore(cfg *config.Config) (store.Store, error) {
+	storeCfg := cfg.Store
+	if storeCfg.Type == "" {
+		// 兼容模式：--db path 等价于 sqlite
+		dbPath := cfg.DB
+		if dbPath == "" {
+			dbPath = "./proxyhub.db"
+		}
+		inner, _ := json.Marshal(map[string]string{"path": dbPath})
+		storeCfg = x.TypedLazyConfig{
+			Type:   "sqlite",
+			Config: inner,
+		}
+	}
+	return store.Create(storeCfg)
+}
+
+// resolveStoreType 用于日志打印
+func resolveStoreType(cfg *config.Config) string {
+	if cfg.Store.Type != "" {
+		return cfg.Store.Type
+	}
+	return "sqlite"
+}
+
+// buildSources 根据 config 创建所有 sources
+//
+// 规则：
+//  1. 如果 cfg.Sources 非空（配置文件结构化）：按其创建
+//  2. 否则：默认 proxifly + cfg.ExtraSource 解析字符串
+func buildSources(cfg *config.Config) ([]pool.Source, error) {
+	var out []pool.Source
+
+	if len(cfg.Sources) > 0 {
+		// 结构化配置模式
+		for _, sc := range cfg.Sources {
+			s, err := source.Create(*sc)
+			if err != nil {
+				return nil, fmt.Errorf("create source %s/%s: %w", sc.Name, sc.Type, err)
+			}
+			out = append(out, s)
+		}
+		return out, nil
+	}
+
+	// 兼容模式：默认 proxifly
+	defaultSrc, err := source.Create(x.TypedLazyConfig{Type: "proxifly"})
+	if err != nil {
+		return nil, fmt.Errorf("create proxifly: %w", err)
+	}
+	out = append(out, defaultSrc)
+
+	// cfg.ExtraSource 字符串解析
+	if cfg.ExtraSource != "" {
+		extra, err := parseExtraSources(cfg.ExtraSource)
+		if err != nil {
+			return nil, fmt.Errorf("parse extra-source: %w", err)
+		}
+		out = append(out, extra...)
+	}
+	return out, nil
+}
+
+// parseExtraSources 解析 "name1=url1:proto1;name2=url2:proto2" 为 sources
+func parseExtraSources(s string) ([]pool.Source, error) {
+	var out []pool.Source
 	for _, part := range strings.Split(s, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -184,7 +249,16 @@ func parseExtraSources(s string) ([]*source.Text, error) {
 			url = rest[:colonIdx]
 			protoStr = rest[colonIdx+1:]
 		}
-		out = append(out, source.NewText(name, url, pool.Protocol(protoStr)))
+		inner, _ := json.Marshal(map[string]string{"url": url, "protocol": protoStr})
+		src, err := source.Create(x.TypedLazyConfig{
+			Name:   name,
+			Type:   "text",
+			Config: inner,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, src)
 	}
 	return out, nil
 }

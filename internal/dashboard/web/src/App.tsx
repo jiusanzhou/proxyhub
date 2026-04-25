@@ -165,7 +165,7 @@ function App() {
         <div className="brand">
           <span className="logo">🔀</span>
           <span className="title">proxyhub</span>
-          <span className="ver">v0.4.0</span>
+          <span className="ver">v0.5.0</span>
         </div>
         <nav className="nav">
           <a href="https://github.com/jiusanzhou/proxyhub" target="_blank" rel="noreferrer">
