@@ -18,5 +18,5 @@ bin/
 # Local
 .env
 .env.local
-proxyhub
-proxyhub.exe
+/proxyhub
+/proxyhub.exe

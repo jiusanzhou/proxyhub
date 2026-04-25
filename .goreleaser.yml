@@ -1,0 +1,85 @@
+version: 2
+
+project_name: proxyhub
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: proxyhub
+    main: ./cmd/proxyhub
+    binary: proxyhub
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+
+dockers:
+  - image_templates:
+      - 'ghcr.io/jiusanzhou/proxyhub:{{ .Version }}-amd64'
+      - 'ghcr.io/jiusanzhou/proxyhub:latest-amd64'
+    dockerfile: deploy/Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: amd64
+    build_flag_templates:
+      - '--platform=linux/amd64'
+      - '--label=org.opencontainers.image.source=https://github.com/jiusanzhou/proxyhub'
+      - '--label=org.opencontainers.image.licenses=MIT'
+
+  - image_templates:
+      - 'ghcr.io/jiusanzhou/proxyhub:{{ .Version }}-arm64'
+      - 'ghcr.io/jiusanzhou/proxyhub:latest-arm64'
+    dockerfile: deploy/Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: arm64
+    build_flag_templates:
+      - '--platform=linux/arm64'
+      - '--label=org.opencontainers.image.source=https://github.com/jiusanzhou/proxyhub'
+      - '--label=org.opencontainers.image.licenses=MIT'
+
+docker_manifests:
+  - name_template: 'ghcr.io/jiusanzhou/proxyhub:{{ .Version }}'
+    image_templates:
+      - 'ghcr.io/jiusanzhou/proxyhub:{{ .Version }}-amd64'
+      - 'ghcr.io/jiusanzhou/proxyhub:{{ .Version }}-arm64'
+  - name_template: 'ghcr.io/jiusanzhou/proxyhub:latest'
+    image_templates:
+      - 'ghcr.io/jiusanzhou/proxyhub:latest-amd64'
+      - 'ghcr.io/jiusanzhou/proxyhub:latest-arm64'

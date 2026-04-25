@@ -1,6 +1,13 @@
 # proxyhub
 
-> 聚合代理池微服务 - 多源免费代理聚合 + 健康度评估 + 智能轮转
+[![Go Reference](https://pkg.go.dev/badge/github.com/jiusanzhou/proxyhub.svg)](https://pkg.go.dev/github.com/jiusanzhou/proxyhub)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jiusanzhou/proxyhub)](https://goreportcard.com/report/github.com/jiusanzhou/proxyhub)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/jiusanzhou/proxyhub/actions/workflows/ci.yml/badge.svg)](https://github.com/jiusanzhou/proxyhub/actions)
+
+> 聚合代理池微服务 - 多源免费代理聚合 + 健康度评估 + 智能轮转 + Session 粘性
+
+兼容 Bright Data / SmartProxy / Oxylabs 的标准代理接口语义。一个二进制，零外部依赖，自部署。
 
 ## 设计
 

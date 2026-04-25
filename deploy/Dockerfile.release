@@ -1,0 +1,10 @@
+# Used by goreleaser - copies pre-built binary
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY proxyhub /usr/local/bin/proxyhub
+
+EXPOSE 7000 7001
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/proxyhub"]
+CMD ["serve"]
