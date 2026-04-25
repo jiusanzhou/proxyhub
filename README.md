@@ -243,9 +243,22 @@ proxyhub serve \
 
 ### 二进制
 
+从 [Releases](https://github.com/jiusanzhou/proxyhub/releases) 下载：
+
+```bash
+# Linux amd64
+curl -L https://github.com/jiusanzhou/proxyhub/releases/latest/download/proxyhub_0.2.0_linux_amd64.tar.gz | tar -xz
+./proxyhub serve --db /var/lib/proxyhub.db
+
+# macOS arm64 (M1/M2/M3/M4)
+curl -L https://github.com/jiusanzhou/proxyhub/releases/latest/download/proxyhub_0.2.0_darwin_arm64.tar.gz | tar -xz
+./proxyhub serve
+```
+
+或 `go install`：
+
 ```bash
 go install github.com/jiusanzhou/proxyhub/cmd/proxyhub@latest
-proxyhub serve --db /var/lib/proxyhub.db
 ```
 
 ### Docker
@@ -254,9 +267,11 @@ proxyhub serve --db /var/lib/proxyhub.db
 docker run -d --name proxyhub \
   -p 7000:7000 -p 7001:7001 \
   -v proxyhub-data:/data \
-  zoe/proxyhub:latest \
+  ghcr.io/jiusanzhou/proxyhub:latest \
   serve --db /data/proxyhub.db
 ```
+
+多架构（amd64 + arm64）镜像已发布到 GHCR。
 
 ### systemd
 
