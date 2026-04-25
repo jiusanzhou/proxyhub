@@ -40,6 +40,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # golangci-lint 暂未支持 Go 1.25，等 v1.65+ 后移除
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
