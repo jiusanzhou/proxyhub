@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-25
+
 ### Changed
 - **Dashboard 重构为 Vite + React 19 + TypeScript**
   - 组件化、类型安全、HMR 开发体验

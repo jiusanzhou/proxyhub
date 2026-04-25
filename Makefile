@@ -1,7 +1,7 @@
 .PHONY: build test run clean install docker dashboard dashboard-dev dashboard-deps smoke
 
 BIN := bin/proxyhub
-VERSION := 0.3.0
+VERSION := 0.3.1
 WEB_DIR := internal/dashboard/web
 
 # 完整构建：先 dashboard，再 Go
