@@ -37,6 +37,14 @@ type PickOpts struct {
 	PreferAsian bool
 	HTTPSOnly   bool
 	TopN        int
+
+	// Session 粘性会话 ID。同一 session 的请求绑定同一出口 IP，
+	// 直到 TTL 过期或失败次数超过阈值。
+	Session string
+	// SessionTTL 会话存活时间（默认 server 端 10m）
+	SessionTTL time.Duration
+	// Rotate 强制轮转（清掉 session 现有绑定，重新挑代理）
+	Rotate bool
 }
 
 // Proxy REST API 返回的代理信息
@@ -114,6 +122,15 @@ func (t *headerInjectTransport) RoundTrip(req *http.Request) (*http.Response, er
 	}
 	if t.opts.TopN > 0 {
 		req.Header.Set("X-Proxyhub-Top-N", strconv.Itoa(t.opts.TopN))
+	}
+	if t.opts.Session != "" {
+		req.Header.Set("X-Proxyhub-Session", t.opts.Session)
+	}
+	if t.opts.SessionTTL > 0 {
+		req.Header.Set("X-Proxyhub-TTL", t.opts.SessionTTL.String())
+	}
+	if t.opts.Rotate {
+		req.Header.Set("X-Proxyhub-Rotate", "true")
 	}
 	return t.base.RoundTrip(req)
 }
@@ -242,4 +259,121 @@ func (a *API) Refresh(ctx context.Context) (added int, total int, err error) {
 		return 0, 0, err
 	}
 	return out.Added, out.Total, nil
+}
+
+// ============================================================
+// 响应头解析（业务层用）
+// ============================================================
+
+// ProxyMeta 从响应头提取的代理元数据
+type ProxyMeta struct {
+	Proxy     string        // 实际使用的代理 URL
+	Country   string        // 代理国家
+	Latency   time.Duration // 本次请求代理延迟
+	Session   string        // 回显的 session ID
+	Rotated   bool          // 本次是否触发了轮转
+	Attempts  int           // 重试次数
+}
+
+// ParseMeta 从 http.Response.Header 提取 proxyhub 元数据
+func ParseMeta(h http.Header) ProxyMeta {
+	m := ProxyMeta{
+		Proxy:   h.Get("X-Proxyhub-Proxy"),
+		Country: h.Get("X-Proxyhub-Country"),
+		Session: h.Get("X-Proxyhub-Session"),
+	}
+	if v := h.Get("X-Proxyhub-Latency-Ms"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			m.Latency = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v := h.Get("X-Proxyhub-Rotated"); v != "" {
+		m.Rotated = v == "true"
+	}
+	if v := h.Get("X-Proxyhub-Attempts"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			m.Attempts = n
+		}
+	}
+	return m
+}
+
+// ============================================================
+// Session API（独立于前向代理，可用于查看/管理）
+// ============================================================
+
+// SessionInfo Session 信息
+type SessionInfo struct {
+	ID           string  `json:"id"`
+	Proxy        *Proxy  `json:"proxy"`
+	CreatedAt    string  `json:"created_at"`
+	LastUsed     string  `json:"last_used"`
+	TTLSeconds   int     `json:"ttl_seconds"`
+	ExpiresIn    int     `json:"expires_in"`
+	FailureCount int     `json:"failure_count"`
+}
+
+// CreateSession 创建/查看 session 绑定
+func (a *API) CreateSession(ctx context.Context, id, country, ttl string) (*Proxy, error) {
+	body, _ := json.Marshal(map[string]any{
+		"id":      id,
+		"country": country,
+		"ttl":     ttl,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		a.BaseURL+"/api/v1/sessions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("create session: %d %s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		Proxy Proxy `json:"proxy"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out.Proxy, nil
+}
+
+// RotateSession 强制轮转 session 的 IP
+func (a *API) RotateSession(ctx context.Context, id string) error {
+	url := fmt.Sprintf("%s/api/v1/sessions/rotate?id=%s", a.BaseURL, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := a.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("rotate session: %d %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// DeleteSession 删除 session
+func (a *API) DeleteSession(ctx context.Context, id string) error {
+	url := fmt.Sprintf("%s/api/v1/sessions?id=%s", a.BaseURL, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := a.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

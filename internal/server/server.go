@@ -2,6 +2,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,16 +12,19 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"github.com/jiusanzhou/proxyhub/internal/session"
 )
 
 // Server proxyhub 服务
 type Server struct {
-	pool    *pool.Pool
-	checker *pool.Checker
+	pool         *pool.Pool
+	checker      *pool.Checker
+	sessionMgr   *session.Manager
 
 	// 启动时记录，给 /healthz 用
 	startedAt time.Time
@@ -33,8 +37,9 @@ type Server struct {
 // New 创建 server
 func New(p *pool.Pool) *Server {
 	return &Server{
-		pool:      p,
-		startedAt: time.Now(),
+		pool:        p,
+		startedAt:   time.Now(),
+		sessionMgr:  session.NewManager(10*time.Minute, 3),
 	}
 }
 
@@ -53,6 +58,8 @@ func (s *Server) HTTPHandler() http.Handler {
 	mux.HandleFunc("/api/v1/proxies", s.handleList)
 	mux.HandleFunc("/api/v1/refresh", s.handleRefresh)
 	mux.HandleFunc("/api/v1/check", s.handleCheckStats)
+	mux.HandleFunc("/api/v1/sessions", s.handleSessions)
+	mux.HandleFunc("/api/v1/sessions/rotate", s.handleSessionRotate)
 	return mux
 }
 
@@ -78,6 +85,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"uptime":     time.Since(s.startedAt).String(),
 		"pool_size":  stats.Total,
 		"available":  stats.Available,
+		"sessions":   s.sessionMgr.Size(),
 		"proxy_reqs": s.proxyReqCount.Load(),
 		"api_reqs":   s.apiReqCount.Load(),
 	}
@@ -225,11 +233,36 @@ func (s *Server) handleCheckStats(w http.ResponseWriter, r *http.Request) {
 // HTTP 前向代理
 // ============================================================
 
-func (s *Server) handleForwardProxy(w http.ResponseWriter, r *http.Request) {
-	s.proxyReqCount.Add(1)
+// Response headers written to client on both HTTP and CONNECT paths
+const (
+	HdrProxy      = "X-Proxyhub-Proxy"       // 使用的代理 URL
+	HdrCountry    = "X-Proxyhub-Country"     // 代理国家
+	HdrLatencyMs  = "X-Proxyhub-Latency-Ms"  // 本次请求代理侧延迟
+	HdrSession    = "X-Proxyhub-Session"     // 回显 session ID
+	HdrRotated    = "X-Proxyhub-Rotated"     // session 是否发生 IP 轮转 (true/false)
+	HdrAttempts   = "X-Proxyhub-Attempts"    // 实际尝试次数
+)
 
-	// 从 header / 查询参数读取偏好
-	opts := pool.PickOpts{
+// forwardReq 解析自请求头/用户名的前向代理控制参数
+type forwardReq struct {
+	opts     pool.PickOpts
+	session  string        // session id（空 = 无 session）
+	rotate   bool          // 强制轮转
+	ttl      time.Duration // session TTL override
+}
+
+// parseForwardReq 从请求解析控制参数
+//
+// 支持两种传参方式（业界标准）：
+//  1. 自定义 header X-Proxyhub-*
+//  2. Proxy-Authorization Basic 的用户名里编码（Bright Data/SmartProxy 风格）
+//     例: user-session-abc-country-CN:pass
+//     字段以 "-" 分隔，键值成对：session/country/protocol/rotate
+func (s *Server) parseForwardReq(r *http.Request) forwardReq {
+	req := forwardReq{}
+
+	// 1. Header 优先
+	req.opts = pool.PickOpts{
 		Country:     r.Header.Get("X-Proxyhub-Country"),
 		Protocol:    pool.Protocol(r.Header.Get("X-Proxyhub-Protocol")),
 		PreferAsian: r.Header.Get("X-Proxyhub-Prefer-Asian") == "true",
@@ -237,70 +270,252 @@ func (s *Server) handleForwardProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if topN := r.Header.Get("X-Proxyhub-Top-N"); topN != "" {
 		if n, err := strconv.Atoi(topN); err == nil {
-			opts.TopN = n
+			req.opts.TopN = n
+		}
+	}
+	req.session = r.Header.Get("X-Proxyhub-Session")
+	req.rotate = r.Header.Get("X-Proxyhub-Rotate") == "true"
+	if ttlStr := r.Header.Get("X-Proxyhub-TTL"); ttlStr != "" {
+		if d, err := time.ParseDuration(ttlStr); err == nil {
+			req.ttl = d
 		}
 	}
 
+	// 2. Proxy-Authorization 兜底（Bright Data 兼容语法）
+	if req.session == "" && req.opts.Country == "" {
+		if user := proxyAuthUser(r); user != "" {
+			parseBrightDataUser(user, &req)
+		}
+	}
+	return req
+}
+
+// proxyAuthUser 从 Proxy-Authorization: Basic 中解析用户名
+func proxyAuthUser(r *http.Request) string {
+	auth := r.Header.Get("Proxy-Authorization")
+	if auth == "" {
+		return ""
+	}
+	const prefix = "Basic "
+	if !strings.HasPrefix(auth, prefix) {
+		return ""
+	}
+	dec, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return ""
+	}
+	s := string(dec)
+	if idx := strings.IndexByte(s, ':'); idx >= 0 {
+		return s[:idx]
+	}
+	return s
+}
+
+// parseBrightDataUser 解析 "user-session-abc-country-CN-rotate-true" 格式
+func parseBrightDataUser(user string, req *forwardReq) {
+	parts := strings.Split(user, "-")
+	// 跳过第一个"user"前缀（如果有）
+	start := 0
+	if len(parts) > 0 && (parts[0] == "user" || parts[0] == "zone") {
+		start = 1
+	}
+	for i := start; i+1 < len(parts); i += 2 {
+		key, val := parts[i], parts[i+1]
+		switch strings.ToLower(key) {
+		case "session":
+			req.session = val
+		case "country":
+			req.opts.Country = strings.ToUpper(val)
+		case "protocol", "proto":
+			req.opts.Protocol = pool.Protocol(strings.ToLower(val))
+		case "rotate":
+			req.rotate = val == "true" || val == "1"
+		case "asian":
+			req.opts.PreferAsian = val == "true" || val == "1"
+		}
+	}
+}
+
+// pickForSession 为请求挑代理：session 粘性优先，其他按 PickOpts 挑
+//
+// 返回: (proxy, rotated: 是否刚刚轮转了一个新 IP)
+func (s *Server) pickForSession(req forwardReq) (*pool.Proxy, bool) {
+	// 显式请求轮转：清掉 session 绑定
+	if req.rotate && req.session != "" {
+		s.sessionMgr.Rotate(req.session)
+	}
+
+	// 有 session：查现有绑定
+	if req.session != "" {
+		if sess := s.sessionMgr.Get(req.session); sess != nil && sess.Proxy != nil && !sess.Proxy.IsBanned() {
+			return sess.Proxy, false
+		}
+		// 重新绑定
+		pr := s.pool.Pick(req.opts)
+		if pr == nil {
+			return nil, false
+		}
+		s.sessionMgr.Bind(req.session, pr, req.ttl)
+		return pr, true
+	}
+
+	// 无 session：直接挑
+	return s.pool.Pick(req.opts), false
+}
+
+func (s *Server) handleForwardProxy(w http.ResponseWriter, r *http.Request) {
+	s.proxyReqCount.Add(1)
+	req := s.parseForwardReq(r)
+
 	if r.Method == http.MethodConnect {
-		s.handleConnect(w, r, opts)
+		s.handleConnect(w, r, req)
 		return
 	}
-	s.handleHTTPProxy(w, r, opts)
+	s.handleHTTPProxy(w, r, req)
+}
+
+// writeProxyHeaders 把代理元数据写入响应头
+func writeProxyHeaders(h http.Header, p *pool.Proxy, session string, rotated bool, attempts int, latency time.Duration) {
+	if p != nil {
+		h.Set(HdrProxy, p.URL)
+		h.Set(HdrCountry, p.Country)
+	}
+	if latency > 0 {
+		h.Set(HdrLatencyMs, strconv.FormatInt(latency.Milliseconds(), 10))
+	}
+	if session != "" {
+		h.Set(HdrSession, session)
+		h.Set(HdrRotated, strconv.FormatBool(rotated))
+	}
+	h.Set(HdrAttempts, strconv.Itoa(attempts))
 }
 
 // handleHTTPProxy 处理普通 HTTP 请求（非 CONNECT）
-func (s *Server) handleHTTPProxy(w http.ResponseWriter, r *http.Request, opts pool.PickOpts) {
-	// 直接复用 pool.HTTPClient 的 RoundTripper
-	client := s.pool.HTTPClient(opts)
+//
+// 带重试 + session 轮转：
+//   - 有 session: 失败达到阈值后切换新 IP
+//   - 无 session: 每次失败都挑新代理
+func (s *Server) handleHTTPProxy(w http.ResponseWriter, r *http.Request, req forwardReq) {
+	const maxRetries = 5
 
-	// 清理 hop-by-hop headers
-	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	var (
+		lastErr     error
+		rotatedInit bool
+	)
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		pr, rotated := s.pickForSession(req)
+		if attempt == 1 {
+			rotatedInit = rotated
+		}
+		if pr == nil {
+			lastErr = fmt.Errorf("no proxy available")
+			break
+		}
+
+		proxyURL, err := url.Parse(pr.URL)
+		if err != nil {
+			pr.RecordFail(s.pool.FailCooldown())
+			lastErr = err
+			continue
+		}
+
+		start := time.Now()
+		tr := &http.Transport{
+			Proxy:                 http.ProxyURL(proxyURL),
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		}
+		client := &http.Client{Transport: tr, Timeout: 30 * time.Second}
+
+		// 新 outReq（body 可能被消费）— 仅重试不重读 body，如需要可 rewind
+		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		copyHeader(outReq.Header, r.Header)
+		removeHopHeaders(outReq.Header)
+		// 不透传 X-Proxyhub-* 到上游
+		for k := range outReq.Header {
+			if strings.HasPrefix(k, "X-Proxyhub-") {
+				outReq.Header.Del(k)
+			}
+		}
+
+		resp, err := client.Do(outReq)
+		latency := time.Since(start)
+		if err != nil {
+			pr.RecordFail(s.pool.FailCooldown())
+			lastErr = err
+			// session 下：累计失败，达到阈值才真正换 IP
+			if req.session != "" {
+				if shouldRotate := s.sessionMgr.RecordFailure(req.session); shouldRotate {
+					s.sessionMgr.Rotate(req.session)
+					req.rotate = false // 下次循环自然会重新 bind
+				} else {
+					// 还没到阈值，但代理已 ban，下次循环 pickForSession 会自动换
+				}
+			}
+			slog.Debug("HTTP proxy attempt failed",
+				"attempt", attempt, "proxy", pr.URL, "url", r.URL.Host, "err", err)
+			continue
+		}
+
+		// 成功
+		pr.RecordSuccess(latency)
+		if req.session != "" {
+			s.sessionMgr.Touch(req.session)
+		}
+
+		// 写响应头（在 WriteHeader 前）
+		copyHeader(w.Header(), resp.Header)
+		removeHopHeaders(w.Header())
+		writeProxyHeaders(w.Header(), pr, req.session, rotatedInit, attempt, latency)
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		resp.Body.Close()
 		return
 	}
-	copyHeader(outReq.Header, r.Header)
-	removeHopHeaders(outReq.Header)
 
-	resp, err := client.Do(outReq)
-	if err != nil {
-		slog.Warn("forward proxy failed", "url", r.URL.String(), "err", err)
-		http.Error(w, "proxy upstream error: "+err.Error(), http.StatusBadGateway)
-		return
+	if lastErr == nil {
+		lastErr = fmt.Errorf("exhausted retries")
 	}
-	defer resp.Body.Close()
-
-	copyHeader(w.Header(), resp.Header)
-	removeHopHeaders(w.Header())
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	slog.Warn("forward proxy failed", "url", r.URL.String(), "err", lastErr)
+	w.Header().Set(HdrAttempts, strconv.Itoa(maxRetries))
+	http.Error(w, "proxy upstream error: "+lastErr.Error(), http.StatusBadGateway)
 }
 
 // handleConnect 处理 HTTPS CONNECT 隧道
-func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, opts pool.PickOpts) {
-	// HTTPS CONNECT 只支持 HTTP/HTTPS 代理（socks 暂不实现）
-	// 默认优先 HTTP/HTTPS 代理（socks4/5 跳过）
-	if opts.Protocol == "" {
-		opts.Protocol = pool.ProtoHTTP // HTTP 代理通常也支持 CONNECT
+func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, req forwardReq) {
+	// HTTPS CONNECT 跳过 socks 类型
+	if req.opts.Protocol == "" {
+		req.opts.Protocol = pool.ProtoHTTP
 	}
 
-	const maxRetries = 15 // 免费代理质量差，给更多重试机会
+	const maxRetries = 15
 	var (
-		upstream net.Conn
-		pickedPr *pool.Proxy
-		lastErr  error
+		upstream    net.Conn
+		pickedPr    *pool.Proxy
+		lastErr     error
+		totalAttempts int
+		rotatedInit bool
+		latencyOK   time.Duration
 	)
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		pr := s.pool.Pick(opts)
+		totalAttempts = attempt + 1
+		pr, rotated := s.pickForSession(req)
+		if attempt == 0 {
+			rotatedInit = rotated
+		}
 		if pr == nil {
 			// 切换协议再试
-			if opts.Protocol == pool.ProtoHTTP {
-				opts.Protocol = pool.ProtoHTTPS
+			if req.opts.Protocol == pool.ProtoHTTP {
+				req.opts.Protocol = pool.ProtoHTTPS
 				continue
 			}
 			break
 		}
-		// 跳过不支持的协议（socks 类）
 		if pr.Protocol == pool.ProtoSOCKS4 || pr.Protocol == pool.ProtoSOCKS5 {
 			continue
 		}
@@ -315,13 +530,21 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, opts pool
 		if err != nil {
 			pr.RecordFail(s.pool.FailCooldown())
 			lastErr = err
+			if req.session != "" {
+				if shouldRotate := s.sessionMgr.RecordFailure(req.session); shouldRotate {
+					s.sessionMgr.Rotate(req.session)
+				}
+			}
 			slog.Debug("CONNECT attempt failed", "proxy", pr.URL, "host", r.Host, "err", err)
 			continue
 		}
-		pr.RecordSuccess(time.Since(start))
+		latencyOK = time.Since(start)
+		pr.RecordSuccess(latencyOK)
+		if req.session != "" {
+			s.sessionMgr.Touch(req.session)
+		}
 		upstream = conn
 		pickedPr = pr
-		slog.Debug("CONNECT ok", "proxy", pr.URL, "host", r.Host, "attempt", attempt+1)
 		break
 	}
 	if upstream == nil {
@@ -329,11 +552,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, opts pool
 			lastErr = fmt.Errorf("no suitable proxy")
 		}
 		slog.Warn("CONNECT failed after retries", "host", r.Host, "err", lastErr, "retries", maxRetries)
+		w.Header().Set(HdrAttempts, strconv.Itoa(totalAttempts))
 		http.Error(w, "upstream error: "+lastErr.Error(), http.StatusBadGateway)
 		return
 	}
 	defer upstream.Close()
-	_ = pickedPr
 
 	// 劫持本地连接
 	hijacker, ok := w.(http.Hijacker)
@@ -348,8 +571,18 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, opts pool
 	}
 	defer clientConn.Close()
 
-	// 200 Connection Established
-	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+	// 200 Connection Established + 代理元数据 header
+	headers := "HTTP/1.1 200 Connection Established\r\n"
+	headers += fmt.Sprintf("%s: %s\r\n", HdrProxy, pickedPr.URL)
+	headers += fmt.Sprintf("%s: %s\r\n", HdrCountry, pickedPr.Country)
+	headers += fmt.Sprintf("%s: %d\r\n", HdrLatencyMs, latencyOK.Milliseconds())
+	headers += fmt.Sprintf("%s: %d\r\n", HdrAttempts, totalAttempts)
+	if req.session != "" {
+		headers += fmt.Sprintf("%s: %s\r\n", HdrSession, req.session)
+		headers += fmt.Sprintf("%s: %v\r\n", HdrRotated, rotatedInit)
+	}
+	headers += "\r\n"
+	if _, err := clientConn.Write([]byte(headers)); err != nil {
 		return
 	}
 	// 双向转发
@@ -456,5 +689,126 @@ func proxyToJSON(p *pool.Proxy) map[string]any {
 		"success_count":  p.SuccessCount(),
 		"fail_count":     p.FailCount(),
 		"is_banned":      p.IsBanned(),
+	}
+}
+
+// ============================================================
+// Session API
+// ============================================================
+
+// GET /api/v1/sessions               -> 列表
+// POST /api/v1/sessions {id, ttl}    -> 创建/查看绑定
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	s.apiReqCount.Add(1)
+	switch r.Method {
+	case http.MethodGet:
+		all := s.sessionMgr.All()
+		out := make([]map[string]any, 0, len(all))
+		now := time.Now()
+		for _, sess := range all {
+			item := map[string]any{
+				"id":            sess.ID,
+				"created_at":    sess.CreatedAt.Format(time.RFC3339),
+				"last_used":     sess.LastUsed.Format(time.RFC3339),
+				"ttl_seconds":   int(sess.TTL.Seconds()),
+				"expires_in":    int(sess.TTL.Seconds() - now.Sub(sess.LastUsed).Seconds()),
+				"failure_count": sess.FailureCount,
+			}
+			if sess.Proxy != nil {
+				item["proxy"] = proxyToJSON(sess.Proxy)
+			}
+			out = append(out, item)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"sessions": out,
+			"count":    len(out),
+		})
+	case http.MethodPost:
+		var body struct {
+			ID       string `json:"id"`
+			Country  string `json:"country"`
+			Protocol string `json:"protocol"`
+			TTL      string `json:"ttl"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.ID == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		ttl := 0 * time.Second
+		if body.TTL != "" {
+			if d, err := time.ParseDuration(body.TTL); err == nil {
+				ttl = d
+			}
+		}
+		// 复用 pickForSession 的语义：如果已有绑定就返回，否则新建
+		req := forwardReq{
+			session: body.ID,
+			ttl:     ttl,
+			opts: pool.PickOpts{
+				Country:  strings.ToUpper(body.Country),
+				Protocol: pool.Protocol(body.Protocol),
+			},
+		}
+		pr, _ := s.pickForSession(req)
+		if pr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no proxy available"})
+			return
+		}
+		sess := s.sessionMgr.Get(body.ID)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":         body.ID,
+			"proxy":      proxyToJSON(pr),
+			"ttl_seconds": int(sess.TTL.Seconds()),
+		})
+	case http.MethodDelete:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		s.sessionMgr.Rotate(id)
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// POST /api/v1/sessions/rotate?id=xxx -> 强制轮转
+func (s *Server) handleSessionRotate(w http.ResponseWriter, r *http.Request) {
+	s.apiReqCount.Add(1)
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	s.sessionMgr.Rotate(id)
+	writeJSON(w, http.StatusOK, map[string]any{"rotated": id})
+}
+
+// CleanupSessions 启动后台清理过期 session
+func (s *Server) CleanupSessions(stop <-chan struct{}, interval time.Duration) {
+	if interval <= 0 {
+		interval = 1 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			n := s.sessionMgr.Cleanup()
+			if n > 0 {
+				slog.Debug("session cleanup", "removed", n)
+			}
+		}
 	}
 }

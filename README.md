@@ -59,12 +59,57 @@ curl -x http://localhost:7000 \
   https://push2.eastmoney.com/api/qt/clist/get
 ```
 
-支持的 header：
-- `X-Proxyhub-Country`: ISO 国家代码（CN/US/HK/...）
-- `X-Proxyhub-Protocol`: http/https/socks4/socks5
-- `X-Proxyhub-Prefer-Asian`: true 时优先亚洲代理
-- `X-Proxyhub-HTTPS-Only`: true 时只用 HTTPS 代理
-- `X-Proxyhub-Top-N`: 在前 N 个高分中随机（默认 20）
+支持的请求头：
+
+| Header | 说明 |
+|---|---|
+| `X-Proxyhub-Country` | ISO 国家代码（CN/US/HK/...） |
+| `X-Proxyhub-Protocol` | http/https/socks4/socks5 |
+| `X-Proxyhub-Prefer-Asian` | true 时优先亚洲代理 |
+| `X-Proxyhub-HTTPS-Only` | true 时只用 HTTPS 代理 |
+| `X-Proxyhub-Top-N` | 在前 N 个高分中随机（默认 20） |
+| `X-Proxyhub-Session` | 粘性会话 ID（同 ID 复用同一 IP） |
+| `X-Proxyhub-TTL` | 会话存活时间（如 `10m`，默认 10m） |
+| `X-Proxyhub-Rotate` | true 时强制轮转该 session 的 IP |
+
+**响应头**（每次请求都会附带，业务可读取审计/日志）：
+
+| Header | 说明 |
+|---|---|
+| `X-Proxyhub-Proxy` | 实际使用的代理 URL |
+| `X-Proxyhub-Country` | 代理出口国家 |
+| `X-Proxyhub-Latency-Ms` | 代理侧本次请求延迟 |
+| `X-Proxyhub-Session` | 回显 session ID |
+| `X-Proxyhub-Rotated` | true=本次刚轮转过 IP |
+| `X-Proxyhub-Attempts` | 实际尝试次数（含重试） |
+
+#### Session 粘性 IP
+
+```bash
+# 同一 session ID 自动绑定同一出口 IP，直到 TTL 过期或失败超阈值
+curl -x http://localhost:7000 \
+  -H "X-Proxyhub-Session: my-task-123" \
+  -H "X-Proxyhub-TTL: 30m" \
+  http://example.com/api/login
+
+# 后续请求自动复用同一 IP
+curl -x http://localhost:7000 \
+  -H "X-Proxyhub-Session: my-task-123" \
+  http://example.com/api/data
+
+# 强制换 IP（同 session）
+curl -x http://localhost:7000 \
+  -H "X-Proxyhub-Session: my-task-123" \
+  -H "X-Proxyhub-Rotate: true" \
+  http://example.com/api/data
+
+# Bright Data / SmartProxy 兼容用户名格式
+curl -x http://user-session-myid-country-CN:any@localhost:7000 \
+  http://example.com
+```
+
+session 自动失败轮转：单 session 内代理连续失败 N 次（默认 3）会自动绑定新 IP，
+失败 1-2 次只是在 pool 内换代理，不破坏 session 语义。
 
 ### 2️⃣ REST API
 
@@ -87,6 +132,13 @@ curl 'http://localhost:7001/api/v1/proxies?country=CN&sort=score&limit=10'
 
 # 立即触发刷新
 curl -X POST http://localhost:7001/api/v1/refresh
+
+# Session 管理
+curl http://localhost:7001/api/v1/sessions                            # 列表
+curl -X POST http://localhost:7001/api/v1/sessions \
+  -d '{"id":"task-1","country":"CN","ttl":"30m"}'                     # 创建/查看
+curl -X POST 'http://localhost:7001/api/v1/sessions/rotate?id=task-1' # 强制轮转
+curl -X DELETE 'http://localhost:7001/api/v1/sessions?id=task-1'      # 删除
 
 # Prometheus 指标
 curl http://localhost:7001/metrics
