@@ -7,15 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Dashboard 重构为 Vite + React 19 + TypeScript**
+  - 组件化、类型安全、HMR 开发体验
+  - 沿用之前的视觉设计（卡片 / 柱状+折线图 / 表格 / Session 管理 / Ops）
+  - Dev: `make dashboard-dev` Vite proxy 到 :7001
+  - Build 产物 go:embed 进二进制（生产无需 Node.js）
+  - CI/Release workflow 增加 pnpm build 步骤
+  - 资源体积: app.js 64KB gzipped, 入口 html 0.5KB
+
+### Internal
+- internal/dashboard/web/ 是 Vite/React 工程
+- internal/dashboard/assets/ 是 build 产物（go:embed 目标，纳入 git 方便 go install 用户）
+- Makefile: `make build` 自动跑 dashboard build
+
+## [0.3.0] - 2026-04-25
+
 ### Added
-- **Web Dashboard** — 嵌入式 UI（纯 HTML/CSS/JS，go:embed 打进二进制）
+- **Web Dashboard**（嵌入式 UI）
   - 实时 metrics 卡片（total/available/banned/latency/sessions/reqs）
   - Canvas 绘制的可用率柱状图 + 延迟折线图（60s 窗口）
   - 代理列表（过滤 + 排序）、国家分布、活跃 session 管理
   - 5s 自动刷新，支持强制刷新池 / 触发健康探测 / 轮转 session
-  - 零外部依赖，零前端构建步骤
-
-### Added (internal)
 - `/api/v1/proxies` 新增 `protocol` 过滤参数
 
 ## [0.2.0] - 2026-04-25

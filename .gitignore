@@ -20,3 +20,8 @@ bin/
 .env.local
 /proxyhub
 /proxyhub.exe
+
+# Dashboard dev
+internal/dashboard/web/node_modules/
+internal/dashboard/web/dist/
+internal/dashboard/web/.vite/

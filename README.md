@@ -9,7 +9,7 @@
 
 兼容 Bright Data / SmartProxy / Oxylabs 的标准代理接口语义。一个二进制，零外部依赖，自部署。
 
-**自带 Web Dashboard**（纯 embedded HTML/CSS/JS，零前端构建）— 启动后访问 `http://localhost:7001/` 即可。
+**自带 Web Dashboard**（Vite + React + TypeScript，build 产物 go:embed 进二进制，运行时无外部依赖）— 启动后访问 `http://localhost:7001/` 即可。
 
 ## 设计
 
@@ -298,6 +298,25 @@ docker run -d --name proxyhub \
 ```
 
 多架构（amd64 + arm64）镜像已发布到 GHCR。
+
+### 从源码编译
+
+需要 Go 1.25+ 和 [pnpm](https://pnpm.io/)。
+
+```bash
+git clone https://github.com/jiusanzhou/proxyhub
+cd proxyhub
+
+make build          # 构建 dashboard (Vite/React) + Go 二进制
+./bin/proxyhub serve
+
+# 仅开发 dashboard（Vite hot reload）
+make dashboard-dev  # 终端 A：启动 Vite 在 :5173
+./bin/proxyhub serve   # 终端 B：起 API 在 :7001
+# 访问 http://localhost:5173/，Vite 自动 proxy /api 到 :7001
+```
+
+发布产物（GitHub Release）已经预先 build 好 dashboard，**用户拿来直接用，不需要 Node.js 环境**。
 
 ### systemd
 

@@ -19,6 +19,21 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: internal/dashboard/web/pnpm-lock.yaml
+
+      - name: Build dashboard
+        run: |
+          cd internal/dashboard/web
+          pnpm install --frozen-lockfile
+          pnpm build
+
       - name: Verify dependencies
         run: go mod verify
 
