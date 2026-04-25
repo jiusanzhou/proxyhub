@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
-	"github.com/jiusanzhou/proxyhub/internal/session"
+	"go.zoe.im/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/session"
 )
 
 // Server proxyhub 服务

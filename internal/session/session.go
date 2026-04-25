@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/pool"
 )
 
 // Session 粘性会话

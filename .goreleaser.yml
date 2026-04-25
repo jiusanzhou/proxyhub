@@ -21,9 +21,10 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X go.zoe.im/x/version.GitVersion=v{{.Version}}
+      - -X go.zoe.im/x/version.GitCommit={{.FullCommit}}
+      - -X go.zoe.im/x/version.BuildDate={{.Date}}
+      - -X go.zoe.im/x/version.GitTreeState=clean
 
 archives:
   - id: default

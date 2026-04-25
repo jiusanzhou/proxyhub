@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/pool"
 )
 
 // Source 代理来源接口

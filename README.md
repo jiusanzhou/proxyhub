@@ -159,7 +159,7 @@ curl http://localhost:7001/healthz
 ### 3️⃣ Go SDK
 
 ```go
-import "github.com/jiusanzhou/proxyhub/pkg/client"
+import "go.zoe.im/proxyhub/pkg/client"
 
 // 方式 A: HTTP 前向代理
 httpClient := client.NewHTTPClient("http://localhost:7000", &client.PickOpts{
@@ -179,7 +179,51 @@ fmt.Println(stats.Total, stats.Available)
 
 ## 配置
 
-CLI flags：
+支持三种方式，优先级：**flag > env > config file > 默认值**。
+
+### 1. 配置文件（推荐生产使用）
+
+```bash
+proxyhub serve --config /etc/proxyhub.yaml
+```
+
+支持 YAML / TOML / JSON，示例 `proxyhub.yaml`：
+
+```yaml
+proxy_port: 7000
+api_port: 7001
+db: /var/lib/proxyhub.db
+log_level: info
+
+refresh_interval: 10m
+fail_cooldown: 5m
+
+# 额外文本订阅源: name=url:proto;...
+extra_source: ""
+
+# 健康探测
+check_enabled: true
+check_interval: 60s
+check_dial_timeout: 5s
+check_http_timeout: 8s
+check_concurrency: 50
+check_l7: false
+check_target: httpbin.org:80
+check_ban_on_fail: 3
+```
+
+### 2. 环境变量
+
+任何字段都可用全大写下划线形式设置：
+
+```bash
+PROXY_PORT=8000 API_PORT=8001 DB=/tmp/p.db proxyhub serve
+CHECK_CONCURRENCY=200 CHECK_L7=true proxyhub serve
+```
+
+### 3. 命令行 flag
+
+完整列表 `proxyhub serve --help`，主要字段：
 
 ```
 --proxy-port int             HTTP 前向代理端口 (默认 7000)
@@ -191,7 +235,7 @@ CLI flags：
 --extra-source string        额外文本订阅源 name=url:proto，多个用 ; 分隔
 
 # 健康探测
---health-check               启用后台健康探测 (默认 true)
+--check                      启用后台健康探测 (默认 true)
 --check-interval dur         整轮探测间隔 (默认 60s)
 --check-dial-timeout dur     L4 TCP dial 超时 (默认 5s)
 --check-http-timeout dur     L7 HTTP CONNECT 探测超时 (默认 8s)
@@ -284,7 +328,7 @@ curl -L https://github.com/jiusanzhou/proxyhub/releases/latest/download/proxyhub
 或 `go install`：
 
 ```bash
-go install github.com/jiusanzhou/proxyhub/cmd/proxyhub@latest
+go install go.zoe.im/proxyhub/cmd/proxyhub@latest
 ```
 
 ### Docker

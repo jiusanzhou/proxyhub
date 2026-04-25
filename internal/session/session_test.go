@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/pool"
 )
 
 func TestManagerBindAndGet(t *testing.T) {

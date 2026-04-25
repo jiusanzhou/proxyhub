@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/pool"
 )
 
 // Handler 返回 Prometheus 兼容的 /metrics handler

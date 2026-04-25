@@ -9,7 +9,7 @@ import (
 
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，无需 CGO
 
-	"github.com/jiusanzhou/proxyhub/internal/pool"
+	"go.zoe.im/proxyhub/internal/pool"
 )
 
 // SQLiteStore 基于 SQLite 的持久化（零依赖）

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking: module path 改为 `go.zoe.im/proxyhub`**
+  - 旧 import `github.com/jiusanzhou/proxyhub/pkg/client` → `go.zoe.im/proxyhub/pkg/client`
+  - 仓库仍在 `github.com/jiusanzhou/proxyhub`（go.zoe.im 通过 vanity URL 映射）
+- **CLI 换为 `go.zoe.im/x/cli`**（cobra 风格）
+  - 支持 `--config <file>`（yaml/toml/json 自动识别）
+  - 支持环境变量自动绑定（`PROXY_PORT`, `API_PORT`, `DB`, 等）
+  - flag 优先级：flag > env > config file > defaults
+  - 自动 `version` 子命令（带 git tag/commit/build date）
+- **版本信息从 git tag 注入**（`go.zoe.im/x/version`），不再手动维护 `VERSION` 变量
+- **Makefile 对齐 zoe 标准模板**（LDFLAGS + DEBUG/CGO_ENABLED/help）
+
+### Added
+- `internal/config` 包，定义 `Config` struct（同时做 flag 源 + 配置文件 schema）
+- `cmd/cmd.go` + `cmd/proxyhub/commands/serve.go`：标准 subcommand 注册结构
+- `proxyhub serve --config /etc/proxyhub.yaml` 支持
+- YAML 配置示例见 README
+
+### Fixed
+- main.go 从 273 行瘦身到 ~15 行（业务逻辑搬到 commands/serve.go）
+
 ## [0.3.1] - 2026-04-25
 
 ### Changed
