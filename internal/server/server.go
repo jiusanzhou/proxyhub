@@ -165,6 +165,16 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 		all = filtered
 	}
+	if proto := q.Get("protocol"); proto != "" {
+		filtered := make([]*pool.Proxy, 0, len(all))
+		want := pool.Protocol(proto)
+		for _, p := range all {
+			if p.Protocol == want {
+				filtered = append(filtered, p)
+			}
+		}
+		all = filtered
+	}
 	if onlyAvailable := q.Get("available") == "true"; onlyAvailable {
 		filtered := make([]*pool.Proxy, 0, len(all))
 		for _, p := range all {

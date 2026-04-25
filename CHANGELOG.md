@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Web Dashboard** — 嵌入式 UI（纯 HTML/CSS/JS，go:embed 打进二进制）
+  - 实时 metrics 卡片（total/available/banned/latency/sessions/reqs）
+  - Canvas 绘制的可用率柱状图 + 延迟折线图（60s 窗口）
+  - 代理列表（过滤 + 排序）、国家分布、活跃 session 管理
+  - 5s 自动刷新，支持强制刷新池 / 触发健康探测 / 轮转 session
+  - 零外部依赖，零前端构建步骤
+
+### Added (internal)
+- `/api/v1/proxies` 新增 `protocol` 过滤参数
+
 ## [0.2.0] - 2026-04-25
 
 ### Added

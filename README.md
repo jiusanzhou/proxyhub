@@ -9,6 +9,8 @@
 
 兼容 Bright Data / SmartProxy / Oxylabs 的标准代理接口语义。一个二进制，零外部依赖，自部署。
 
+**自带 Web Dashboard**（纯 embedded HTML/CSS/JS，零前端构建）— 启动后访问 `http://localhost:7001/` 即可。
+
 ## 设计
 
 ```
@@ -200,6 +202,30 @@ CLI flags：
 ```
 
 实测：3336 代理 × 200 并发 × 3s 超时 = 21 秒/轮。
+
+## Web Dashboard
+
+启动后访问 `http://localhost:7001/`，零构建步骤，纯嵌入静态资源（go:embed）。
+
+![Dashboard](docs/dashboard.png)
+
+**能看到**：
+
+- 实时 metrics：总量 / 可用 / 已 ban / 平均延迟 / 活跃 session 数 / 累计请求
+- 可用率 vs 失败率柱状图（60 秒窗口）
+- 平均延迟折线图
+- 代理列表（按国家/协议/状态过滤 + 点击表头排序）
+- 国家分布（Top 24 国家 + 旗帜 + 数量）
+- 活跃 session 列表（剩余 TTL + 一键轮转/删除）
+
+**能操作**：
+
+- 强制刷新代理池（拉新源）
+- 触发健康探测
+- 轮转指定 session 的 IP
+- 直接跳转 Prometheus `/metrics` 和 `/healthz` 查看原始数据
+
+依赖：零。不需要 Node.js / npm / 构建步骤，`go build` 即带。
 
 ## 健康探测工作流
 

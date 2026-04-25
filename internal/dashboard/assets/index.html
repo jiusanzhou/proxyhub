@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>proxyhub</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🔀%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">🔀</span>
+    <span class="title">proxyhub</span>
+    <span class="ver" id="ver"></span>
+  </div>
+  <nav>
+    <a href="https://github.com/jiusanzhou/proxyhub" target="_blank">GitHub</a>
+    <span class="status-dot" id="dot"></span>
+    <span id="uptime">—</span>
+  </nav>
+</header>
+
+<main>
+  <!-- 顶部 Metric 卡片 -->
+  <section class="metrics">
+    <div class="card"><div class="label">Total</div><div class="value" id="m-total">—</div></div>
+    <div class="card"><div class="label">Available</div><div class="value ok" id="m-avail">—</div><div class="sub" id="m-avail-pct"></div></div>
+    <div class="card"><div class="label">Banned</div><div class="value warn" id="m-banned">—</div></div>
+    <div class="card"><div class="label">Avg Latency</div><div class="value" id="m-latency">—</div></div>
+    <div class="card"><div class="label">Sessions</div><div class="value" id="m-sess">—</div></div>
+    <div class="card"><div class="label">Proxy Reqs</div><div class="value" id="m-preq">—</div></div>
+  </section>
+
+  <!-- Charts -->
+  <section class="charts">
+    <div class="chart-card">
+      <div class="chart-title">Available vs Banned (60s)</div>
+      <canvas id="chart-avail" width="600" height="160"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Avg Latency (ms, 60s)</div>
+      <canvas id="chart-lat" width="600" height="160"></canvas>
+    </div>
+  </section>
+
+  <!-- Country distribution -->
+  <section class="card block">
+    <div class="block-head">
+      <h3>Country Distribution</h3>
+    </div>
+    <div id="countries" class="country-grid"></div>
+  </section>
+
+  <!-- Proxies Table -->
+  <section class="card block">
+    <div class="block-head">
+      <h3>Proxies</h3>
+      <div class="toolbar">
+        <input type="text" id="filter-country" placeholder="country (CN/US/...)" maxlength="4">
+        <select id="filter-status">
+          <option value="">all</option>
+          <option value="available">available</option>
+          <option value="banned">banned</option>
+        </select>
+        <select id="filter-proto">
+          <option value="">any proto</option>
+          <option value="http">http</option>
+          <option value="https">https</option>
+          <option value="socks4">socks4</option>
+          <option value="socks5">socks5</option>
+        </select>
+        <input type="number" id="filter-limit" value="100" min="10" max="1000" step="10">
+        <button id="btn-refresh-now">↻</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-proxies">
+        <thead><tr>
+          <th data-sort="country">Country</th>
+          <th data-sort="url">URL</th>
+          <th data-sort="protocol">Proto</th>
+          <th data-sort="score" class="num">Score</th>
+          <th data-sort="success_rate" class="num">Success</th>
+          <th data-sort="avg_latency_ms" class="num">Latency</th>
+          <th data-sort="total_requests" class="num">Reqs</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Sessions -->
+  <section class="card block">
+    <div class="block-head">
+      <h3>Active Sessions</h3>
+      <div class="toolbar">
+        <span id="sess-count" class="muted">0 sessions</span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-sessions">
+        <thead><tr>
+          <th>ID</th>
+          <th>Proxy</th>
+          <th>Country</th>
+          <th class="num">Fails</th>
+          <th class="num">Expires In</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Ops -->
+  <section class="card block">
+    <div class="block-head">
+      <h3>Ops</h3>
+    </div>
+    <div class="ops-grid">
+      <button id="op-refresh" class="btn-primary">Refresh Pool</button>
+      <button id="op-check">Force Health Check</button>
+      <a class="btn-link" href="/metrics" target="_blank">Prometheus metrics ↗</a>
+      <a class="btn-link" href="/healthz" target="_blank">Raw /healthz ↗</a>
+    </div>
+    <pre id="ops-log" class="log"></pre>
+  </section>
+</main>
+
+<footer>
+  <span>proxyhub</span> ·
+  <span>auto-refresh every 5s</span> ·
+  <span id="last-update">—</span>
+</footer>
+
+<script src="/assets/app.js" defer></script>
+</body>
+</html>

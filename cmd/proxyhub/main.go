@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jiusanzhou/proxyhub/internal/dashboard"
 	"github.com/jiusanzhou/proxyhub/internal/metrics"
 	"github.com/jiusanzhou/proxyhub/internal/pool"
 	"github.com/jiusanzhou/proxyhub/internal/server"
@@ -214,14 +215,16 @@ func cmdServe(args []string) {
 		}
 	}()
 
-	// API + metrics（端口 2）
+	// API + metrics + dashboard（端口 2）
 	apiMux := http.NewServeMux()
-	apiMux.Handle("/", srv.HTTPHandler())
 	apiMux.Handle("/metrics", metrics.Handler(p))
+	apiMux.Handle("/", srv.HTTPHandler())
+	// Dashboard 包一层：/ 和 /assets/* 走嵌入 UI，其他 fallthrough
+	apiHandler := dashboard.Handler(apiMux)
 	apiAddr := fmt.Sprintf(":%d", *apiPort)
 	apiSrv := &http.Server{
 		Addr:    apiAddr,
-		Handler: apiMux,
+		Handler: apiHandler,
 	}
 	go func() {
 		slog.Info("api server listening", "addr", apiAddr)
