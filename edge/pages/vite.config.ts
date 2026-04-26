@@ -1,14 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// 两种构建模式:
+// - 默认 (Go embed): outDir = ../../internal/dashboard/assets
+// - Cloudflare Pages: PAGES_BUILD=1 -> outDir = dist
+const isPagesBuild = process.env.PAGES_BUILD === '1'
+
+// API base URL (Pages 模式下指向生产 Workers)
+const apiBase = process.env.VITE_API_BASE || ''
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // 产物直接输出到 ../../internal/dashboard/assets (Go embed 目标)
+  // Pages 模式下用 pages-public 作为静态资源目录（含 _headers）；
+  // embed 模式下不要 publicDir，避免污染 Go embed 目录
+  publicDir: isPagesBuild ? 'pages-public' : false,
+  define: {
+    __API_BASE__: JSON.stringify(apiBase),
+  },
   build: {
-    outDir: '../../internal/dashboard/assets',
+    outDir: isPagesBuild ? 'dist' : '../../internal/dashboard/assets',
     emptyOutDir: true,
-    // 单文件产物，避免 hash 分包（dashboard 体积小没必要）
     rollupOptions: {
       output: {
         entryFileNames: 'assets/app.js',
@@ -19,7 +31,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // 开发时把 API 请求 proxy 到本地 proxyhub
     proxy: {
       '/api': 'http://localhost:7001',
       '/healthz': 'http://localhost:7001',
