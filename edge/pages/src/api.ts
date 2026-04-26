@@ -1,7 +1,13 @@
 import type { HealthResp, Proxy, SessionInfo, StatsResp } from './types'
 
+// API base URL, injected at build time via vite define
+// - 默认空字符串（embed 模式，与 Go 主节点同源）
+// - Pages 部署可通过 VITE_API_BASE 指向远端 Workers/主节点
+declare const __API_BASE__: string
+const API_BASE = typeof __API_BASE__ !== 'undefined' ? __API_BASE__ : ''
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(path, init)
+  const r = await fetch(API_BASE + path, init)
   if (!r.ok) {
     const body = await r.text().catch(() => '')
     throw new Error(`${r.status} ${r.statusText}: ${body}`)

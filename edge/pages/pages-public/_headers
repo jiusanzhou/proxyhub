@@ -1,0 +1,12 @@
+/*
+  Cache-Control: public, max-age=300
+
+# 静态资源长缓存
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# index.html 不缓存
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

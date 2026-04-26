@@ -1,0 +1,14 @@
+name = "proxyhub-workers"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+
+# D1 数据库绑定
+# 部署前替换 database_id 为实际 D1 数据库 ID
+[[d1_databases]]
+binding = "DB"
+database_name = "proxyhub"
+database_id = "b23284e7-eb95-43c3-ae11-60842b914335"
+
+[vars]
+# 可在此配置环境变量
+ENVIRONMENT = "production"

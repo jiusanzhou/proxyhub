@@ -21,7 +21,12 @@ bin/
 /proxyhub
 /proxyhub.exe
 
-# Dashboard dev
-internal/dashboard/web/node_modules/
-internal/dashboard/web/dist/
-internal/dashboard/web/.vite/
+# Dashboard dev (edge/pages)
+edge/pages/node_modules/
+edge/pages/dist/
+edge/pages/.vite/
+
+# Workers dev (edge/workers)
+edge/workers/node_modules/
+edge/workers/dist/
+edge/workers/.wrangler/
