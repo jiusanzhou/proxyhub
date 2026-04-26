@@ -9,7 +9,7 @@ endif
 ROOTDIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 BIN := bin/proxyhub
-WEB_DIR := internal/dashboard/web
+WEB_DIR := edge/pages
 
 # go.zoe.im/x/version ldflags 自动生成（GitVersion / GitCommit / BuildDate / GitTreeState）
 LDFLAGS := $(shell go run -mod=readonly go.zoe.im/x/version/gen 2>/dev/null)

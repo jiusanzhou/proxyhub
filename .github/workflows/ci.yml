@@ -26,11 +26,11 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
-          cache-dependency-path: internal/dashboard/web/pnpm-lock.yaml
+          cache-dependency-path: edge/pages/pnpm-lock.yaml
 
       - name: Build dashboard
         run: |
-          cd internal/dashboard/web
+          cd edge/pages
           pnpm install --frozen-lockfile
           pnpm build
 

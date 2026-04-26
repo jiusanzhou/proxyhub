@@ -4,9 +4,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // 产物直接输出到 ../assets (Go embed 目标)
+  // 产物直接输出到 ../../internal/dashboard/assets (Go embed 目标)
   build: {
-    outDir: '../assets',
+    outDir: '../../internal/dashboard/assets',
     emptyOutDir: true,
     // 单文件产物，避免 hash 分包（dashboard 体积小没必要）
     rollupOptions: {
